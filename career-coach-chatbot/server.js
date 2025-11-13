@@ -265,6 +265,243 @@ app.post("/api/extract-pdf", async (req, res) => {
   }
 });
 
+// Interview question generation endpoint
+app.post("/api/generate-interview-questions", async (req, res) => {
+  console.log("=== Interview Questions Generation Request Started ===");
+
+  try {
+    const { position, hasResume, resumeAnalysis } = req.body;
+
+    if (!position) {
+      return res.status(400).json({ error: "Position is required" });
+    }
+
+    console.log("Generating questions for position:", position);
+    console.log("Has resume:", hasResume);
+
+    // Get API key from environment
+    const apiKey =
+      process.env.VITE_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+
+    if (!apiKey) {
+      console.log("No API key found, using default questions");
+      const defaultQuestions = [
+        "Tell me about yourself and why you're interested in this position.",
+        "What are your greatest strengths and how do they relate to this role?",
+        "Describe a challenging situation you faced at work and how you handled it.",
+        "Where do you see yourself in 5 years?",
+        "Why do you want to work for our company?",
+        "What questions do you have for me?",
+      ];
+      return res.json({ questions: defaultQuestions });
+    }
+
+    const resumeContext =
+      hasResume && resumeAnalysis
+        ? `The candidate has uploaded a resume with the following analysis:
+         - Overall Score: ${resumeAnalysis.overall?.score || 0}/100
+         - Summary: ${resumeAnalysis.overall?.summary || "No summary available"}
+         Please tailor questions based on this information.`
+        : "The candidate has not provided a resume, so ask general questions for the position.";
+
+    const prompt = `You are an experienced interviewer. Generate 6 thoughtful interview questions for a ${position} position.
+
+${resumeContext}
+
+Return ONLY a JSON object in this exact format:
+{
+  "questions": [
+    "question 1",
+    "question 2",
+    "question 3",
+    "question 4",
+    "question 5",
+    "question 6"
+  ]
+}
+
+Make the questions:
+1. Relevant to the ${position} role
+2. Progressive in difficulty (start easy, get more complex)
+3. Mix of behavioral, technical, and situational questions
+4. Professional and appropriate
+
+IMPORTANT: Return ONLY the JSON object. No other text.`;
+
+    console.log("Making request to Anthropic API for questions...");
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-3-haiku-20240307",
+        max_tokens: 1000,
+        messages: [
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      console.log("API request failed, using default questions");
+      const defaultQuestions = [
+        "Tell me about yourself and why you're interested in this position.",
+        "What are your greatest strengths and how do they relate to this role?",
+        "Describe a challenging situation you faced at work and how you handled it.",
+        "Where do you see yourself in 5 years?",
+        "Why do you want to work for our company?",
+        "What questions do you have for me?",
+      ];
+      return res.json({ questions: defaultQuestions });
+    }
+
+    const responseText = await response.text();
+    const data = JSON.parse(responseText);
+
+    if (data.content && data.content[0] && data.content[0].text) {
+      const content = data.content[0].text;
+      try {
+        const questionsData = JSON.parse(content);
+        console.log("Generated questions successfully");
+        return res.json(questionsData);
+      } catch (parseError) {
+        console.log("Failed to parse AI response, using default questions");
+      }
+    }
+
+    // Fallback to default questions
+    const defaultQuestions = [
+      "Tell me about yourself and why you're interested in this position.",
+      "What are your greatest strengths and how do they relate to this role?",
+      "Describe a challenging situation you faced at work and how you handled it.",
+      "Where do you see yourself in 5 years?",
+      "Why do you want to work for our company?",
+      "What questions do you have for me?",
+    ];
+    return res.json({ questions: defaultQuestions });
+  } catch (error) {
+    console.error("Error generating interview questions:", error);
+    const defaultQuestions = [
+      "Tell me about yourself and why you're interested in this position.",
+      "What are your greatest strengths and how do they relate to this role?",
+      "Describe a challenging situation you faced at work and how you handled it.",
+      "Where do you see yourself in 5 years?",
+      "Why do you want to work for our company?",
+      "What questions do you have for me?",
+    ];
+    return res.json({ questions: defaultQuestions });
+  }
+});
+
+// Interview answer review endpoint
+app.post("/api/review-interview-answer", async (req, res) => {
+  console.log("=== Interview Answer Review Request Started ===");
+
+  try {
+    const { question, answer, position } = req.body;
+
+    if (!question || !answer) {
+      return res
+        .status(400)
+        .json({ error: "Question and answer are required" });
+    }
+
+    console.log("Reviewing answer for question:", question);
+
+    // Get API key from environment
+    const apiKey =
+      process.env.VITE_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+
+    if (!apiKey) {
+      console.log("No API key found, providing generic feedback");
+      return res.json({
+        feedback:
+          "Thank you for your answer! You provided relevant information and demonstrated good communication skills. Consider adding more specific examples to strengthen your response.",
+      });
+    }
+
+    const prompt = `You are an experienced interviewer providing constructive feedback on a candidate's interview answer.
+
+Position: ${position}
+Question: ${question}
+Candidate's Answer: ${answer}
+
+Provide helpful, constructive feedback that:
+1. Acknowledges what they did well
+2. Suggests specific improvements
+3. Is encouraging and professional
+4. Is 2-3 sentences long
+5. Focuses on content, structure, and delivery
+
+Return ONLY a JSON object in this exact format:
+{
+  "feedback": "your feedback here"
+}
+
+IMPORTANT: Return ONLY the JSON object. No other text.`;
+
+    console.log("Making request to Anthropic API for feedback...");
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-3-haiku-20240307",
+        max_tokens: 500,
+        messages: [
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      console.log("API request failed, providing generic feedback");
+      return res.json({
+        feedback:
+          "Thank you for your answer! You provided relevant information and demonstrated good communication skills. Consider adding more specific examples to strengthen your response.",
+      });
+    }
+
+    const responseText = await response.text();
+    const data = JSON.parse(responseText);
+
+    if (data.content && data.content[0] && data.content[0].text) {
+      const content = data.content[0].text;
+      try {
+        const feedbackData = JSON.parse(content);
+        console.log("Generated feedback successfully");
+        return res.json(feedbackData);
+      } catch (parseError) {
+        console.log("Failed to parse AI response, using generic feedback");
+      }
+    }
+
+    // Fallback feedback
+    return res.json({
+      feedback:
+        "Thank you for your answer! You provided relevant information and demonstrated good communication skills. Consider adding more specific examples to strengthen your response.",
+    });
+  } catch (error) {
+    console.error("Error reviewing interview answer:", error);
+    return res.json({
+      feedback:
+        "Thank you for your answer! You provided relevant information and demonstrated good communication skills. Consider adding more specific examples to strengthen your response.",
+    });
+  }
+});
+
 // Health check endpoint
 app.get("/api/health", (req, res) => {
   res.json({ status: "OK", message: "Resume Analysis API is running" });

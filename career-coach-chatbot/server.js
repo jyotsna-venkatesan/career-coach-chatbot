@@ -502,6 +502,392 @@ IMPORTANT: Return ONLY the JSON object. No other text.`;
   }
 });
 
+// Career pathway analysis endpoint
+app.post("/api/analyze-career-pathways", async (req, res) => {
+  console.log("=== Career Pathway Analysis Request Started ===");
+
+  try {
+    const { userProfile, resumeAnalysis, hasResume } = req.body;
+
+    if (!userProfile || !userProfile.education) {
+      return res
+        .status(400)
+        .json({ error: "User profile with education is required" });
+    }
+
+    console.log("Analyzing career pathways for profile:", userProfile);
+
+    // Get API key from environment
+    const apiKey =
+      process.env.VITE_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+
+    if (!apiKey) {
+      console.log("No API key found, using default pathways");
+      const defaultPathways = generateDefaultPathways(userProfile);
+      return res.json({ pathways: defaultPathways });
+    }
+
+    const resumeContext =
+      hasResume && resumeAnalysis
+        ? `The user has uploaded a resume with analysis:
+         - Overall Score: ${resumeAnalysis.overall?.score || 0}/100
+         - Summary: ${resumeAnalysis.overall?.summary || "No summary available"}
+         Use this information to enhance the career path recommendations.`
+        : "No resume provided - base recommendations on the profile information only.";
+
+    const prompt = `You are an expert career counselor. Analyze this user profile and provide career pathway recommendations.
+
+User Profile:
+- Education: ${userProfile.education}
+- Experience: ${userProfile.experience}
+- Interests: ${userProfile.interests}
+
+${resumeContext}
+
+Return ONLY a JSON object in this exact format:
+{
+  "pathways": [
+    {
+      "title": "Career Path Title",
+      "matchScore": 85,
+      "description": "Brief description of this career path",
+      "requiredSkills": ["skill1", "skill2", "skill3"],
+      "skillGaps": ["gap1", "gap2"],
+      "developmentSuggestions": ["suggestion1", "suggestion2", "suggestion3"],
+      "salaryRange": "$50,000 - $80,000",
+      "growthOutlook": "Strong growth expected"
+    }
+  ]
+}
+
+Provide 3-4 career paths that:
+1. Match the user's education and interests
+2. Consider their experience level
+3. Have realistic skill requirements
+4. Include specific development suggestions
+5. Have match scores between 60-95%
+
+IMPORTANT: Return ONLY the JSON object. No other text.`;
+
+    console.log("Making request to Anthropic API for career analysis...");
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-3-haiku-20240307",
+        max_tokens: 2000,
+        messages: [
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      console.log("API request failed, using default pathways");
+      const defaultPathways = generateDefaultPathways(userProfile);
+      return res.json({ pathways: defaultPathways });
+    }
+
+    const responseText = await response.text();
+    const data = JSON.parse(responseText);
+
+    if (data.content && data.content[0] && data.content[0].text) {
+      const content = data.content[0].text;
+      try {
+        const pathwaysData = JSON.parse(content);
+        console.log("Generated career pathways successfully");
+        return res.json(pathwaysData);
+      } catch (parseError) {
+        console.log("Failed to parse AI response, using default pathways");
+        const defaultPathways = generateDefaultPathways(userProfile);
+        return res.json({ pathways: defaultPathways });
+      }
+    }
+
+    // Fallback to default pathways
+    const defaultPathways = generateDefaultPathways(userProfile);
+    return res.json({ pathways: defaultPathways });
+  } catch (error) {
+    console.error("Error analyzing career pathways:", error);
+    const defaultPathways = generateDefaultPathways(req.body.userProfile);
+    return res.json({ pathways: defaultPathways });
+  }
+});
+
+// Helper function to generate default career pathways
+function generateDefaultPathways(userProfile) {
+  const education = userProfile.education?.toLowerCase() || "";
+  const interests = userProfile.interests?.toLowerCase() || "";
+
+  let pathways = [];
+
+  if (
+    education.includes("computer") ||
+    education.includes("software") ||
+    education.includes("it")
+  ) {
+    pathways = [
+      {
+        title: "Software Developer",
+        matchScore: 88,
+        description: "Design and develop software applications and systems",
+        requiredSkills: [
+          "Programming",
+          "Problem Solving",
+          "Version Control",
+          "Testing",
+        ],
+        skillGaps: ["Advanced Algorithms", "System Design"],
+        developmentSuggestions: [
+          "Complete coding bootcamp",
+          "Build portfolio projects",
+          "Contribute to open source",
+        ],
+        salaryRange: "$60,000 - $120,000",
+        growthOutlook: "Excellent growth prospects",
+      },
+      {
+        title: "Data Analyst",
+        matchScore: 82,
+        description:
+          "Analyze data to help organizations make informed decisions",
+        requiredSkills: ["Data Analysis", "SQL", "Statistics", "Visualization"],
+        skillGaps: ["Machine Learning", "Advanced Statistics"],
+        developmentSuggestions: [
+          "Learn Python/R",
+          "Get familiar with Tableau",
+          "Complete data science course",
+        ],
+        salaryRange: "$50,000 - $90,000",
+        growthOutlook: "Strong demand expected",
+      },
+    ];
+  } else if (
+    education.includes("business") ||
+    education.includes("management")
+  ) {
+    pathways = [
+      {
+        title: "Business Analyst",
+        matchScore: 85,
+        description:
+          "Bridge the gap between business needs and technical solutions",
+        requiredSkills: [
+          "Analysis",
+          "Communication",
+          "Process Improvement",
+          "Documentation",
+        ],
+        skillGaps: ["Data Analytics", "Project Management"],
+        developmentSuggestions: [
+          "Get PMP certification",
+          "Learn data analysis tools",
+          "Develop presentation skills",
+        ],
+        salaryRange: "$55,000 - $95,000",
+        growthOutlook: "Steady growth expected",
+      },
+      {
+        title: "Project Manager",
+        matchScore: 80,
+        description:
+          "Lead and coordinate projects from initiation to completion",
+        requiredSkills: [
+          "Leadership",
+          "Planning",
+          "Risk Management",
+          "Communication",
+        ],
+        skillGaps: ["Agile Methodologies", "Advanced Project Tools"],
+        developmentSuggestions: [
+          "Obtain PMP certification",
+          "Learn Agile/Scrum",
+          "Practice leadership skills",
+        ],
+        salaryRange: "$65,000 - $110,000",
+        growthOutlook: "Good opportunities across industries",
+      },
+    ];
+  } else {
+    pathways = [
+      {
+        title: "Analyst",
+        matchScore: 75,
+        description:
+          "Research and analyze information in your field of expertise",
+        requiredSkills: [
+          "Research",
+          "Analysis",
+          "Communication",
+          "Critical Thinking",
+        ],
+        skillGaps: ["Industry-specific tools", "Advanced analytics"],
+        developmentSuggestions: [
+          "Develop technical skills",
+          "Network in your industry",
+          "Gain relevant certifications",
+        ],
+        salaryRange: "$45,000 - $80,000",
+        growthOutlook: "Varies by industry",
+      },
+      {
+        title: "Consultant",
+        matchScore: 72,
+        description: "Provide expert advice and solutions to organizations",
+        requiredSkills: [
+          "Expertise",
+          "Communication",
+          "Problem Solving",
+          "Client Management",
+        ],
+        skillGaps: ["Business development", "Specialized knowledge"],
+        developmentSuggestions: [
+          "Build subject matter expertise",
+          "Develop consulting skills",
+          "Create thought leadership content",
+        ],
+        salaryRange: "$55,000 - $120,000",
+        growthOutlook: "Good for specialized expertise",
+      },
+    ];
+  }
+
+  return pathways;
+}
+
+// Resource search endpoint
+app.post("/api/search-resources", async (req, res) => {
+  console.log("=== Resource Search Request Started ===");
+
+  try {
+    const { query, queryType } = req.body;
+
+    if (!query) {
+      return res.status(400).json({ error: "Search query is required" });
+    }
+
+    console.log("Searching for resources:", query, "Type:", queryType);
+
+    // Get API key from environment
+    const apiKey =
+      process.env.VITE_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+
+    if (!apiKey) {
+      console.log("No API key found, using default response");
+      return res.json({
+        results: [
+          {
+            title: "General Career Resource",
+            description: "AI API not available. Using default resources.",
+            type: "general",
+            url: "#",
+          },
+        ],
+      });
+    }
+
+    const prompt = `You are a career resource assistant. Provide helpful career information based on this query: "${query}"
+
+Query Type: ${queryType || "general"}
+
+Return ONLY a JSON object in this exact format:
+{
+  "results": [
+    {
+      "title": "Resource Title",
+      "description": "Brief description of the resource",
+      "type": "job|course|company|salary|skill",
+      "details": "Additional relevant details or data"
+    }
+  ]
+}
+
+Provide 3-5 relevant results that would help someone with their career query. Focus on actionable, Hong Kong-relevant information when possible.
+
+IMPORTANT: Return ONLY the JSON object. No other text.`;
+
+    console.log("Making request to Anthropic API for resource search...");
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-3-haiku-20240307",
+        max_tokens: 1000,
+        messages: [
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      console.log("API request failed, using default results");
+      return res.json({
+        results: [
+          {
+            title: "Career Information",
+            description:
+              "AI service temporarily unavailable. Try using specific keywords in your search.",
+            type: "general",
+            details: "Please try again later or contact support.",
+          },
+        ],
+      });
+    }
+
+    const responseText = await response.text();
+    const data = JSON.parse(responseText);
+
+    if (data.content && data.content[0] && data.content[0].text) {
+      const content = data.content[0].text;
+      try {
+        const resourceData = JSON.parse(content);
+        console.log("Generated resource results successfully");
+        return res.json(resourceData);
+      } catch (parseError) {
+        console.log("Failed to parse AI response, using fallback");
+      }
+    }
+
+    // Fallback results
+    return res.json({
+      results: [
+        {
+          title: "Career Resource Search",
+          description: "Found general information related to your query.",
+          type: "general",
+          details: "Try refining your search with more specific terms.",
+        },
+      ],
+    });
+  } catch (error) {
+    console.error("Error searching resources:", error);
+    return res.json({
+      results: [
+        {
+          title: "Search Error",
+          description: "Unable to process search request at this time.",
+          type: "error",
+          details: "Please try again later.",
+        },
+      ],
+    });
+  }
+});
+
 // Health check endpoint
 app.get("/api/health", (req, res) => {
   res.json({ status: "OK", message: "Resume Analysis API is running" });
